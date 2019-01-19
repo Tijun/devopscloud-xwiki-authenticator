@@ -265,7 +265,7 @@ public final class XWikiDevopsNgConfig
     {
         Map<String, String> userMappings = new HashMap<String, String>();
 
-        String casFieldMapping = getDEVOPSParam("cas_fields_mapping", null, context);
+        String casFieldMapping = getDEVOPSParam("devops_fields_mapping", null, context);
 
         if (casFieldMapping != null && casFieldMapping.length() > 0) {
             String[] fields = casFieldMapping.split(USERMAPPING_SEP);

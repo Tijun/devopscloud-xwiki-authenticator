@@ -59,18 +59,17 @@ public class UserUtils
         // check if we have to create the user
         XWikiDevopsNgConfig config = XWikiDevopsNgConfig.getInstance();
 
-        if (userProfile.isNew() || config.getDEVOPSParam("cas_update_user", "0", context).equals("1")) {
-
-            LOGGER.debug("CAS attributes will be used to update XWiki attributes.");
+            LOGGER.debug("devops attributes will be used to update XWiki attributes.");
 
             if (devopsUserAttribute == null) {
                 LOGGER.error("Can't find any attributes");
             }
 
             if (userProfile.isNew()) {
-                LOGGER.debug("Creating new XWiki user based on CAS attributes.");
+                LOGGER.debug("Creating new XWiki user based on devops attributes.");
 
                 Map<String, String> userMappings = config.getUserMappings(context);
+                LOGGER.info("usermappings: {}",userMappings);
 
                 Map<String, String> map = new HashMap<String, String>();
                 if (devopsUserAttribute != null) {
@@ -83,14 +82,14 @@ public class UserUtils
 
                 // Mark user active
                 map.put("active", "1");
-
+                LOGGER.info("userProfile.getDocumentReference().getName() {}", userProfile.getDocumentReference().getName());
                 context.getWiki().createUser(userProfile.getDocumentReference().getName(), map, context);
 
-                LOGGER.debug("New XWiki user created: [{}]", userProfile.getDocumentReference());
+                LOGGER.debug("Nexw XWiki user created: [{}]", userProfile.getDocumentReference());
 
             } else {
 
-                LOGGER.debug("Updating existing user with CAS attributes");
+                LOGGER.debug("Updating existing user with devops attributes");
 
                 try {
                     Map<String, String> userMappings = config.getUserMappings(context);
@@ -123,14 +122,13 @@ public class UserUtils
                     }
 
                     if (needsUpdate) {
-                        context.getWiki().saveDocument(userProfile, "Synchronized user profile with CAS server", true,
+                        context.getWiki().saveDocument(userProfile, "Synchronized user profile with devops server", true,
                             context);
                     }
                 } catch (XWikiException e) {
                     LOGGER.error("Failed to synchronise user's informations", e);
                 }
             }
-        }
     }
 
     /**

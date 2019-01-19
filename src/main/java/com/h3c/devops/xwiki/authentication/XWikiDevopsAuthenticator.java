@@ -24,15 +24,18 @@ import java.net.URLEncoder;
 import java.security.Principal;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 import javax.servlet.http.Cookie;
 import javax.servlet.http.HttpServletResponse;
 
 import com.h3c.devops.xwiki.authentication.internal.UserUtils;
 import com.h3c.devops.xwiki.authentication.internal.XWikiDevopsNgConfig;
+import com.xpn.xwiki.XWikiConfig;
 import net.sf.json.JSONObject;
 import org.apache.commons.httpclient.HttpClient;
 import org.apache.commons.httpclient.methods.GetMethod;
+import org.apache.ecs.html.S;
 import org.securityfilter.filter.SecurityRequestWrapper;
 import org.securityfilter.realm.SimplePrincipal;
 import org.slf4j.Logger;
@@ -91,16 +94,17 @@ public class XWikiDevopsAuthenticator extends XWikiAuthServiceImpl
     @Override
     public XWikiUser checkAuth(XWikiContext context) throws XWikiException
     {
+        LOGGER.info("start check auth");
+
         if (LOGGER.isDebugEnabled()) {
             LOGGER.debug("devops authentication started");
         }
 
         SecurityRequestWrapper wrappedRequest =
                 new SecurityRequestWrapper(context.getRequest().getHttpServletRequest(), null, null, AUTH_METHOD);
+        // 不做login限制
 
-        if ("login".equals(context.getAction())) {
-            return doLogin(wrappedRequest,context);
-        } else if ("logout".equals(context.getAction()) && wrappedRequest.getUserPrincipal() != null) {
+      if ("logout".equals(context.getAction()) && wrappedRequest.getUserPrincipal() != null) {
             // TODO redirect to the devops logout page
 
             if (LOGGER.isInfoEnabled()) {
@@ -108,21 +112,23 @@ public class XWikiDevopsAuthenticator extends XWikiAuthServiceImpl
             }
             wrappedRequest.setUserPrincipal(null);
 
-            // XWikiDevopsNgConfig config = XWikiDevopsNgConfig.getInstance();
-            //
-            // String casServer = config.getDEVOPSParam("cas_server", "", context);
-            //
-            // try {
-            // context.getResponse().sendRedirect(context.getResponse().encodeRedirectURL(casServer
-            // + "/logout"));
-            // } catch (IOException e) {
-            // throw new XWikiException(XWikiException.MODULE_XWIKI_USER,
-            // XWikiException.ERROR_XWIKI_USER_INIT,
-            // "Can't redirect to the CAS logout page", e);
-            // }
+             XWikiDevopsNgConfig config = XWikiDevopsNgConfig.getInstance();
+
+             String server = config.getDEVOPSParam("devops_server", "", context);
+             String logoutUrl = server + config.getDEVOPSParam("devops_logout","/logout",context);
+
+             try {
+             context.getResponse().sendRedirect(context.getResponse().encodeRedirectURL(logoutUrl));
+             } catch (IOException e) {
+             throw new XWikiException(XWikiException.MODULE_XWIKI_USER,
+             XWikiException.ERROR_XWIKI_USER_INIT,
+             "Can't redirect to the CAS logout page", e);
+             }
             return null;
 
         }
+        LOGGER.info("do login");
+        doLogin(wrappedRequest,context);
 
         if (wrappedRequest.getUserPrincipal() == null) {
             return null;
@@ -137,11 +143,13 @@ public class XWikiDevopsAuthenticator extends XWikiAuthServiceImpl
             try {
 
                 String devopsServer = config.getDEVOPSParam("devops_server", "", context);
-
+                String devopsLoginPath = config.getDEVOPSParam("devops_login", "", context);
+                String devopsLoginPage = devopsServer + devopsLoginPath;
                 String serviceUrl = URLEncoder.encode(createServiceUrl(context), "UTF-8");
+                LOGGER.info("devops login url {}",devopsLoginPage);
                 LOGGER.info("callback service url {}",serviceUrl);
                 context.getResponse().sendRedirect(
-                        context.getResponse().encodeRedirectURL(devopsServer + "/login?callback=" + serviceUrl));
+                        context.getResponse().encodeRedirectURL(devopsLoginPage + "?callback=" + serviceUrl));
             } catch (IOException e) {
                 throw new XWikiException(XWikiException.MODULE_XWIKI_USER, XWikiException.ERROR_XWIKI_USER_INIT,
                         "Can't redirect to the CAS login page", e);
@@ -167,7 +175,7 @@ public class XWikiDevopsAuthenticator extends XWikiAuthServiceImpl
                     wrappedRequest.getSession().invalidate();
                 }
             } else {
-                String failedPage = config.getDEVOPSParam("cas_access_denied_page", null, context);
+                String failedPage = config.getDEVOPSParam("devops_access_denied_page", null, context);
                 try {
                     if (failedPage != null) {
                         context.getResponse().sendRedirect(
@@ -209,55 +217,48 @@ public class XWikiDevopsAuthenticator extends XWikiAuthServiceImpl
         XWikiDevopsNgConfig config = XWikiDevopsNgConfig.getInstance();
 
         String devopsServer = config.getDEVOPSParam("devops_server", "", context);
-        String devopsLoginUri = config.getDEVOPSParam("devops_login_uri", "", context);
-        String devopsAuthInfoUrl = config.getDEVOPSParam("devops_info_uri","",context);
+        String devopsLoginUri = config.getDEVOPSParam("devops_login", "", context);
+        String devopsAuthInfoUrl = devopsServer + config.getDEVOPSParam("devops_info","",context);
+
         LOGGER.info("devopsServer {}",devopsServer);
         LOGGER.info("devopsLoginUri {}",devopsLoginUri);
-        LOGGER.info("devopsAuthInfoUrl",devopsAuthInfoUrl);
+        LOGGER.info("devopsAuthInfoUrl {}",devopsAuthInfoUrl);
 
             // using token cookie to get auth info from devops
             // service url creation
             String serviceUrl = createServiceUrl(context);
             LOGGER.info("service url {}", serviceUrl);
             // get user info by cookie token
-            String userInfoUrl = "";
-            JSONObject devopsUserInfo = getDevopsUserInfo(userInfoUrl, token);
+            LOGGER.info("user token is {}",token);
+            JSONObject devopsUserInfo = getDevopsUserInfo(devopsAuthInfoUrl, token);
             if (devopsUserInfo == null) {
                 // todo error login need redirect to devops login
             }
-
             // get valid wiki username
-            String devopsFieldMappings = config.getDEVOPSParam("devops_field_mappings", "", context);
-            String validXWikiUserName = "testuser1";
-            String database = context.getDatabase();
-            // Switch to main wiki to force users to be global users
+        String validXWikiUserName = getDevopsUserAttrValue("username", devopsUserInfo, context);
+        // Switch to main wiki to force users to be global users
             context.setDatabase(context.getMainXWiki());
-
             // user profile
             XWikiDocument userProfile =
                     context.getWiki().getDocument(
                             new DocumentReference(context.getDatabase(), XWIKI_USER_SPACE, validXWikiUserName), context);
-
-            boolean isNewUser = userProfile.isNew();
-
+            LOGGER.debug("userProfile.get name {}",userProfile.getName());
+            LOGGER.debug("userprofie user is new " ,userProfile.isNew());
             // create XWiki principal
-            principal = new SimplePrincipal(context.getDatabase() + ":" + userProfile.getFullName());
-
-            if (!config.getDEVOPSParam("cas_create_user", "0", context).equals("1")) {
-                // user creation is disabled
-                if (isNewUser) {
-                    return null;
-                }
-
-                return principal;
-            }
+            principal = new SimplePrincipal(validXWikiUserName);
 
             // update or create user
-            UserUtils.syncUser(userProfile, null, context);
+            UserUtils.syncUser(userProfile, devopsUserInfo, context);
 
         return principal;
     }
-
+    private String getDevopsUserAttrValue(String xwikiUserKey,JSONObject devopsUserAttr,XWikiContext context){
+        XWikiDevopsNgConfig instance = XWikiDevopsNgConfig.getInstance();
+        Map<String, String> userMappings = instance.getUserMappings(context);
+        LOGGER.info("usermappings {}",userMappings);
+        userMappings.get(xwikiUserKey);
+        return devopsUserAttr.getString(userMappings.get(xwikiUserKey));
+    }
     /**
      * Create a devops service url
      *
@@ -278,7 +279,6 @@ public class XWikiDevopsAuthenticator extends XWikiAuthServiceImpl
         }
         return sb.toString();
     }
-
 
     private JSONObject getDevopsUserInfo(String userInfoUrl,String token){
         try {
