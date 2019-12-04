@@ -195,7 +195,7 @@ public class XWikiDevopsAuthenticator extends XWikiAuthServiceImpl
         return null;
     }
     private String getTokenFromCookie(XWikiRequest request){
-        Cookie tokenCookie = request.getCookie("token");
+        Cookie tokenCookie = request.getCookie("devopstoken");
         if (null == tokenCookie || tokenCookie.getValue() == null || "".equals(tokenCookie.getValue())){
             LOGGER.error("get token fail");
             return null;
@@ -284,7 +284,7 @@ public class XWikiDevopsAuthenticator extends XWikiAuthServiceImpl
         try {
             HttpClient httpClient = new HttpClient();
             GetMethod getMethod = new GetMethod(userInfoUrl);
-            getMethod.addRequestHeader("Cookie","token=" + token);
+            getMethod.addRequestHeader("Cookie","devopstoken=" + token);
             httpClient.executeMethod(getMethod);
             String info = getMethod.getResponseBodyAsString();
             LOGGER.info("devops info {}",info);
